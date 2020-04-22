@@ -3,22 +3,26 @@
 #include <netdb.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <iostream>
 
 int main(int argc, char **argv)
 {
+    int BUFFSIZE = 500;
+
     struct addrinfo hints;
-    struct addrinfo * result;
-    char buffer[500];
+    struct addrinfo * res;
+
+    char buffer[BUFFSIZE];
     
     memset(&hints, 0, sizeof(struct addrinfo));
     
-    hints.ai_flags    = AI_PASSIVE; //Devolver 0.0.0.0
     hints.ai_family   = AF_INET; // IPv4
     hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_protocol = IPPROTO_UDP;
 
-    int rc = getaddrinfo(argv[1], argv[2], &hints, &result);
+    int rc = getaddrinfo(argv[1], argv[2], &hints, &res);
 
     if ( rc != 0 )
     {
@@ -26,21 +30,25 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    int sd = socket(result->ai_family, result->ai_socktype, 0);
+    int sd = socket(res->ai_family, res->ai_socktype, 0);
 
-    bind(sd, (struct sockaddr *) result->ai_addr, result->ai_addrlen);
+    if(bind(sd, (struct sockaddr *) res->ai_addr, res->ai_addrlen) != 0)
+    {
+        std::cerr << "bind: " << std::endl;
+        return -1;
+    }
 
     while (1) 
     {
         char host[NI_MAXHOST];
         char serv[NI_MAXSERV];
 
-        struct sockaddr cliente;
-        socklen_t cliente_len;
+        struct sockaddr* cliente = res->ai_addr;
+        socklen_t cliente_len = res->ai_addrlen;
 
-        int bytes = recvfrom(sd, buffer, 500, 0, (struct sockaddr *) &cliente, &cliente_len);  
+        int bytes = recvfrom(sd, buffer, (BUFFSIZE - 1) * sizeof(char), 0, cliente, &cliente_len);  
         
-        getnameinfo((struct sockaddr *) &cliente, cliente_len, host, NI_MAXHOST, serv, NI_MAXSERV, NI_NUMERICHOST|NI_NUMERICSERV);
+        getnameinfo(cliente, cliente_len, host, NI_MAXHOST, serv, NI_MAXSERV, NI_NUMERICHOST|NI_NUMERICSERV);
 
         buffer[bytes - 1] = '\0';
         
@@ -58,7 +66,7 @@ int main(int argc, char **argv)
 
             strftime(out, 100, "%r \n", timeinfo);
 
-            sendto(sd, out, strlen(out), 0, (struct sockaddr *) &cliente, cliente_len);
+            sendto(sd, out, strlen(out), 0, cliente, cliente_len);
         }
         else if(strcmp(buffer, "d") == 0)
         {
@@ -71,7 +79,7 @@ int main(int argc, char **argv)
 
             strftime(out, 100, "%D \n", timeinfo);
 
-            sendto(sd, out, strlen(out), 0, (struct sockaddr *) &cliente, cliente_len);
+            sendto(sd, out, strlen(out), 0, cliente, cliente_len);
         }
         else if (strcmp(buffer, "q") == 0)
         {
@@ -82,9 +90,12 @@ int main(int argc, char **argv)
         {
             char out[] = "Error: no such command \n";
             
-            sendto(sd, out, strlen(out), 0, (struct sockaddr *) &cliente, cliente_len);
+            sendto(sd, out, strlen(out), 0, cliente, cliente_len);
         }
     }
+
+    freeaddrinfo(res);
+    close(sd);
     
     return 0;
 }
